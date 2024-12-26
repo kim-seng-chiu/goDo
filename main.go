@@ -6,7 +6,7 @@ import (
 
 func main() {
 	todos := Todos{}
-	// Load data (todos) from storage:\
+
 	storage := NewStorage[Todos]("/todos.json")
 	err := storage.Load(&todos)
 	if err != nil {
