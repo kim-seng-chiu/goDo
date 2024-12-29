@@ -15,6 +15,8 @@ type CmdFlags struct {
 	Show    bool
 	ShowOne int
 	Help    bool
+	Db      string
+	Token   string
 }
 
 func NewCmdFlags() *CmdFlags {
@@ -27,6 +29,8 @@ func NewCmdFlags() *CmdFlags {
 	flag.BoolVar(&cf.Show, "show", false, "List all todos")
 	flag.IntVar(&cf.ShowOne, "showone", -1, "Specify a todo by index to show it, including all details")
 	flag.BoolVar(&cf.Help, "help", false, "Shows how to use this tool")
+	flag.StringVar(&cf.Db, "db", "", "Specify the database url to use")
+	flag.StringVar(&cf.Token, "token", "", "Specify the token to attach to the POST request")
 
 	flag.Parse()
 
@@ -36,9 +40,18 @@ func NewCmdFlags() *CmdFlags {
 func (cf *CmdFlags) Execute(todos *Todos) {
 	switch {
 	case cf.Show:
-		todos.show()
+		if cf.Db != "" {
+			todos.show(cf.Db)
+		} else {
+			fmt.Println("Please provide a db and token")
+		}
+
 	case cf.Add != "":
-		todos.add(cf.Add)
+		if cf.Db != "" && cf.Token != "" {
+			todos.add(cf.Add, cf.Db, cf.Token)
+		} else {
+			fmt.Println("Please provide a db and token")
+		}
 	case cf.Edit != "":
 		split := strings.Split(cf.Edit, ":")
 		if len(split) < 2 || len(split) > 2 {

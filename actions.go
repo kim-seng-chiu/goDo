@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -19,7 +24,24 @@ type Todo struct {
 
 type Todos []Todo
 
-func (todos *Todos) add(taskName string) {
+type StoredTodos struct {
+	Items []struct {
+		CollectionID   string `json:"collectionId"`
+		CollectionName string `json:"collectionName"`
+		Completed      bool   `json:"completed"`
+		CompletedAt    string `json:"completed_at"`
+		CreatedOn      string `json:"created_on"`
+		ID             string `json:"id"`
+		ModifiedOn     string `json:"modified_on"`
+		TaskName       string `json:"task_name"`
+	} `json:"items"`
+	Page       int `json:"page"`
+	PerPage    int `json:"perPage"`
+	TotalItems int `json:"totalItems"`
+	TotalPages int `json:"totalPages"`
+}
+
+func (todos *Todos) add(taskName string, db string, token string) {
 	todo := Todo{
 		TaskName:    taskName,
 		Completed:   false,
@@ -28,7 +50,41 @@ func (todos *Todos) add(taskName string) {
 		CompletedAt: nil,
 	}
 
-	*todos = append(*todos, todo)
+	jsonTodo, err := json.Marshal(todo)
+	if err != nil {
+		fmt.Println("Error marshalling todo:", err)
+		os.Exit(1)
+	}
+
+	req, err := http.NewRequest("POST", db, bytes.NewBuffer(jsonTodo))
+	if err != nil {
+		fmt.Print(err.Error())
+		os.Exit(1)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", token)
+
+	client := &http.Client{}
+
+	response, err := client.Do(req)
+
+	if err != nil {
+		fmt.Print(err.Error())
+		os.Exit(1)
+	}
+
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		fmt.Printf("Unable to read response body: %s", err.Error())
+	}
+
+	if responseBody != nil {
+		fmt.Printf("Todo created successfully: %s", responseBody)
+	} else if response.StatusCode != 200 {
+		fmt.Printf("Error creating todo: %d", response.StatusCode)
+	}
+	fmt.Printf("Todo created successfully: %s", response)
+
 }
 
 func (todos *Todos) delete(index int) error {
@@ -77,23 +133,51 @@ func (todos *Todos) toggle(index int) error {
 	return nil
 }
 
-func (todos *Todos) show() {
+func (todos *Todos) show(db string) {
+	req, err := http.Get(db)
+	if err != nil {
+		fmt.Print(err.Error())
+		os.Exit(1)
+	}
+	bodyResponse, err := io.ReadAll(req.Body)
+	if err != nil {
+		fmt.Print(err.Error())
+		os.Exit(1)
+	}
+
+	stringOfTodos := string(bodyResponse)
+	var tasks StoredTodos
+	err = json.Unmarshal([]byte(stringOfTodos), &tasks)
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
 	table := table.New(os.Stdout)
 	table.SetRowLines(false)
 	table.SetHeaders("#", "Task Name", "Completed?", "Created On", "Completed At")
 
-	for index, t := range *todos {
+	for i := 0; i < len(tasks.Items); i++ {
 		completed := "❌"
 		completedAt := ""
+		createdOnTime := ""
 
-		if t.Completed {
+		if tasks.Items[i].Completed {
 			completed = "✅"
-			if t.CompletedAt != nil {
-				completedAt = t.CompletedAt.Format(time.RFC3339)
+			if tasks.Items[i].CompletedAt != "" {
+				completedTime, err := time.Parse(time.RFC3339, tasks.Items[i].CompletedAt)
+				if err == nil {
+					completedAt = completedTime.Format(time.RFC3339)
+				}
 			}
 		}
 
-		table.AddRow(strconv.Itoa(index), t.TaskName, completed, t.CreatedOn.Format(time.RFC1123), completedAt)
+		createdOn, err := time.Parse(time.RFC3339, tasks.Items[i].CreatedOn)
+		if err == nil {
+			createdOnTime = createdOn.Format(time.RFC3339)
+		}
+
+		table.AddRow(strconv.Itoa(i), tasks.Items[i].TaskName, completed, createdOnTime, completedAt)
 	}
 
 	table.Render()
